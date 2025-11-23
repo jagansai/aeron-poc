@@ -1,0 +1,33 @@
+apply plugin: 'java'
+apply plugin: 'application'
+
+mainClassName = 'org.example.Publisher'
+
+// Configure the 'run' task JVM args so Agrona can access Unsafe on modern JDKs
+run {
+    jvmArgs = [
+        '--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED',
+        '--add-opens=java.base/java.util.zip=ALL-UNNAMED'
+    ]
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'io.aeron:aeron-client:1.49.0'
+    implementation 'org.agrona:agrona:1.18.0'
+}
+
+// Keep compilation simple; adjust sourceCompatibility if needed
+sourceCompatibility = 21
+
+jar {
+    manifest {
+        attributes 'Main-Class': mainClassName
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}
