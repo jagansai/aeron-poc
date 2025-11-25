@@ -1,58 +1,52 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <csignal>
+#include <atomic>
 
-// Aeron-only subscriber (no UDP fallback). Uses SleepingIdleStrategy for balanced polling.
-#include <aeron/Aeron.h>
-#include <aeron/Subscription.h>
-#include <concurrent/AtomicBuffer.h>
+#include <Aeron.h>
+#include <FragmentAssembler.h>
 #include <concurrent/SleepingIdleStrategy.h>
-#include <util/Index.h>
 
 using namespace aeron;
+using namespace aeron::concurrent;
+
+std::atomic<bool> running(true);
+
+void sigIntHandler(int) { running = false; }
 
 int main()
 {
     const std::string channel = "aeron:udp?endpoint=127.0.0.1:40123";
     const std::int32_t streamId = 1001;
 
-    aeron::Context ctx;
-    std::shared_ptr<Aeron> client = Aeron::connect(ctx);
+    std::cout << "Subscribing to " << channel << " stream " << streamId << std::endl;
 
-    // addSubscription returns a registration id; then find the Subscription object
-    std::int64_t registrationId = client->addSubscription(channel, streamId);
+    Context ctx;
+    std::shared_ptr<Aeron> aeron = Aeron::connect(ctx);
+    std::signal(SIGINT, sigIntHandler);
 
-    std::shared_ptr<Subscription> subscription;
+    std::int64_t id = aeron->addSubscription(channel, streamId);
+    std::shared_ptr<Subscription> sub;
+    while (!(sub = aeron->findSubscription(id)))
+        std::this_thread::yield();
 
-    std::cout << "Waiting for subscription to become available on " << channel << " stream=" << streamId << "\n";
+    std::cout << "Subscription ready, polling..." << std::endl;
 
-    // wait until the subscription object is available from the client
-    while (!subscription)
+    FragmentAssembler assembler([](const AtomicBuffer &buf, util::index_t offset, util::index_t len, const Header &hdr) {
+        std::cout << "Msg stream=" << hdr.streamId() << " <<" 
+                  << std::string(reinterpret_cast<const char*>(buf.buffer()) + offset, len) 
+                  << ">>" << std::endl;
+    });
+
+    SleepingIdleStrategy idle(std::chrono::milliseconds(1));
+
+    while (running)
     {
-        subscription = client->findSubscription(registrationId);
-        if (!subscription)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-    }
-
-    std::cout << "Subscription available, polling for messages..." << std::endl;
-
-    // Simple poll loop using Aeron's SleepingIdleStrategy (balanced latency vs CPU)
-    aeron::concurrent::SleepingIdleStrategy idle(std::chrono::milliseconds(1)); // 1ms sleep granularity
-
-    auto handler = [](const AtomicBuffer& buffer, util::index_t offset, util::index_t length, const Header& header)
-    {
-        const char* data = reinterpret_cast<const char*>(buffer.buffer()) + offset;
-        std::string msg(data, static_cast<size_t>(length));
-        std::cout << "Received: " << msg << std::endl;
-    };
-
-    while (true)
-    {
-        int fragments = subscription->poll(handler, 10);
+        int fragments = sub->poll(assembler.handler(), 10);
         idle.idle(fragments);
     }
 
+    std::cout << "Done." << std::endl;
     return 0;
 }

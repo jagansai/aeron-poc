@@ -1,70 +1,60 @@
-```markdown
-# Aeron POC — Java Publisher (Gradle) + C++ Subscriber (CMake) — Linux
+# Aeron POC — Java Publisher (Gradle) + C++ Subscriber (CMake)
 
-This repository is a small proof-of-concept demonstrating cross-language interoperability with Aeron: a Java publisher and a C++ subscriber communicating over UDP loopback via an external MediaDriver.
+This repository demonstrates Aeron interoperability between a Java publisher and a C++ subscriber communicating over UDP loopback through an external MediaDriver. The PoC can be built and run on both Linux and Windows.
 
-Channel & stream
-- Channel: `aeron:udp?endpoint=127.0.0.1:40123`
+## Channel & stream
+- Channel URI: `aeron:udp?endpoint=127.0.0.1:40123`
 - Stream ID: `1001`
 
-Repository highlights
-- `java-publisher/` — Java publisher (Gradle)
-  - `scripts/start-publisher.sh` — helper to build/run the publisher (supports background mode and simple args)
+## Prerequisites
+### Linux (Ubuntu/Debian example)
+- Git
+- OpenJDK 17+ (`openjdk-17-jdk`)
+- Gradle (or use the wrapper under `java-publisher`)
+- CMake 3.18+, `build-essential` (gcc/g++)
+- Aeron repository clone nearby (for `media-driver` and native C++ artifacts)
 
-- `cpp-subscriber/` — C++ subscriber (CMake)
-  - `scripts/run-subscriber.sh` — helper to run the subscriber (sets `LD_LIBRARY_PATH`)
-
-- `scripts/start_all.sh` — top-level helper that reads `scripts/run.conf` and can start MediaDriver, subscriber and publisher together (or individually via their helpers)
-
-Prerequisites (Ubuntu/Debian example)
-- Git, OpenJDK 21+, Gradle (or use the wrapper under `java-publisher`), CMake, `build-essential`.
-
-Install example:
 ```bash
 sudo apt update
-sudo apt install -y git openjdk-21-jdk gradle cmake build-essential
+sudo apt install -y git openjdk-17-jdk gradle cmake build-essential
 ```
 
-MediaDriver
+### Windows (PowerShell)
+- Git
+- OpenJDK 17+ (Temurin/Adoptium recommended)
+- Visual Studio 2022+ with “Desktop development with C++”
+- CMake 3.18+
+- Aeron repository clone so you can run `aeron-samples\scripts\media-driver.cmd` and point the C++ build to `cppbuild/Release`
+
+## MediaDriver
+### Linux
 ```bash
 git clone https://github.com/aeron-io/aeron.git
 cd aeron/aeron-samples/scripts
 ./media-driver
 ```
 
-Quickstart (recommended)
-1. Ensure MediaDriver is running (see commands above) or set `start.media.driver=true` in `scripts/run.conf` and let `start_all.sh` attempt to start it.
-2. Edit `scripts/run.conf` to configure background/foreground and publisher interval. Example `scripts/run.conf`:
-
-```properties
-subscriber.run.in.bg=true
-publisher.run.in.bg=true
-publisher.msg.limit=2000
-publisher.msg.interval.ms=500
-start.media.driver=true
+### Windows
+```powershell
+cd C:\path\to\aeron\aeron-samples\scripts
+.\media-driver.cmd
 ```
 
-3. Start everything using the start_all.sh:
+Keep the MediaDriver running while you start the subscriber and publisher.
+
+## Java publisher
+`java-publisher` is a Gradle project (depends on `io.aeron:aeron-client:1.49.0`). The helper `java-publisher/scripts/start-publisher.sh` builds the jar and supports background execution on Linux; on Windows you can call the Gradle wrapper (`gradlew.bat`).
 
 ```bash
-./scripts/start_all.sh ./scripts/run.conf
+cd java-publisher
+./gradlew build
+./gradlew startPublisher --args="100 200"
 ```
 
-What the script does
-- Optionally starts MediaDriver (if `start.media.driver=true` and `aeron` repo is present),
-- Builds the C++ subscriber if missing and starts it (foreground/background),
-- Runs the Java publisher (foreground/background) using the configured interval.
+`startPublisher` accepts `<count|loop>` and `<interval-ms>` arguments.
 
-Run components individually
-- Java publisher (helper):
-```bash
-java-publisher/scripts/start-publisher.sh <count|loop> <interval-ms> [--bg]
-# examples:
-java-publisher/scripts/start-publisher.sh 100 200   # send 100 messages, 200ms interval
-java-publisher/scripts/start-publisher.sh loop 500  # run continuously, 500ms between messages
-```
-
-- C++ subscriber (build & run):
+## C++ subscriber
+### Linux
 ```bash
 cd cpp-subscriber
 mkdir -p build && cd build
@@ -72,11 +62,42 @@ cmake .. -DAERON_BUILD_DIR=/path/to/aeron/cppbuild/Release
 cmake --build . --target cpp-subscriber -j
 ../scripts/run-subscriber.sh
 ```
+`run-subscriber.sh` sets `LD_LIBRARY_PATH` to include the Aeron `lib/` directory.
 
-Logs
-- `scripts/start_all.sh` creates `logs/` and writes `media-driver.log`, `subscriber.log`, and the publisher log when run in background.
-
-Notes & troubleshooting
-- If the C++ build cannot find Aeron headers/libs, build Aeron native artifacts so `cppbuild/Release` contains `include/` and `lib/`.
-- If scripts complain about `LD_LIBRARY_PATH`, use the provided `scripts/*` helpers; they set the environment correctly.
+### Windows
+```powershell
+cd cpp-subscriber
+mkdir build
+cd build
+cmake .. -G "Visual Studio 17 2022" -DAERON_BUILD_DIR=C:/path/to/aeron/cppbuild/Release
+cmake --build . --config Release --target cpp-subscriber
+..\scripts\run-subscriber.ps1 -BuildDir build
 ```
+`run-subscriber.ps1` prepends the Aeron native `lib/` folder to `PATH` before launching the executable.
+
+### Notes
+- The CMake script links `ws2_32` on Windows and accepts `AERON_BUILD_DIR` from both platforms.
+
+## Helper scripts
+- `scripts/start_all.sh` (Linux): reads `scripts/run.conf`, optionally starts MediaDriver, builds the subscriber, and launches both components (supports background logging).
+- `scripts/start_all.ps1` (Windows): PowerShell orchestrator that parses `run.conf`, starts `media-driver.cmd`, builds the subscriber via CMake, and runs the subscriber/publisher (background logging supported).
+- `cpp-subscriber/scripts/run-subscriber.sh`/`.ps1`: platform-specific helpers that ensure Aeron native libs are on the loader path before running the subscriber executable.
+- `java-publisher/scripts/start-publisher.sh`: cross-platform helper that wraps the Gradle task (on Windows you can also call `gradlew.bat startPublisher --args="..."`).
+
+## Configuration (`scripts/run.conf`)
+```properties
+subscriber.run.in.bg=true
+publisher.run.in.bg=true
+publisher.msg.limit=2000
+publisher.msg.interval.ms=20
+start.media.driver=true
+```
+- `subscriber.run.in.bg` / `publisher.run.in.bg`: run the component in the background (logs saved to `logs/`).
+- `publisher.msg.limit`: number of messages to send (`-1` means loop).
+- `publisher.msg.interval.ms`: delay between messages in milliseconds.
+- `start.media.driver`: whether the orchestrator tries to start MediaDriver.
+- `cmake.generator` (optional): e.g., `Visual Studio 17 2022`; the Windows script respects this value.
+- `aeron.build.dir` (optional): absolute path to the Aeron native build output used by the Windows orchestrator.
+
+## Logs
+When helper scripts run components in the background they write `media-driver.log`, `subscriber.log`, and `java-publisher.log` under `logs/`. Tail these logs to confirm message flow.

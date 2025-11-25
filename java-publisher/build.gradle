@@ -1,7 +1,10 @@
 apply plugin: 'java'
 apply plugin: 'application'
 
-mainClassName = 'org.example.Publisher'
+application {
+    // application.mainClass is the supported way to declare the entry point in Gradle 9.x
+    mainClass.set('org.example.Publisher')
+}
 
 // Configure the 'run' task JVM args so Agrona can access Unsafe on modern JDKs
 run {
@@ -12,12 +15,14 @@ run {
 }
 
 repositories {
+    mavenLocal()
     mavenCentral()
+    maven { url 'https://oss.sonatype.org/content/repositories/snapshots/' }
 }
 
 dependencies {
-    implementation 'io.aeron:aeron-client:1.49.0'
-    implementation 'org.agrona:agrona:1.18.0'
+    implementation 'io.aeron:aeron-client:1.50.0-SNAPSHOT'
+    implementation 'org.agrona:agrona:1.24.0'
 }
 
 // Keep compilation simple; adjust sourceCompatibility if needed
@@ -25,9 +30,10 @@ sourceCompatibility = 21
 
 jar {
     manifest {
-        attributes 'Main-Class': mainClassName
+        attributes 'Main-Class': application.mainClass.get()
     }
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
 }
+

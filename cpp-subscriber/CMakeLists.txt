@@ -1,11 +1,11 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.18)
 project(cpp-subscriber LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
 # Point to Aeron build outputs. Override with -DAERON_BUILD_DIR=/path/to/aeron/build
 if (NOT DEFINED AERON_BUILD_DIR)
-    set(AERON_BUILD_DIR "${CMAKE_SOURCE_DIR}/../aeron/build" CACHE PATH "Aeron build directory (cppbuild/Release)")
+    set(AERON_BUILD_DIR "${CMAKE_SOURCE_DIR}/../aeron/build" CACHE PATH "Aeron build directory (cppbuild/<config>)")
 endif()
 
 if (NOT DEFINED AERON_SRC_DIR)
@@ -15,38 +15,58 @@ endif()
 message(STATUS "Using AERON_BUILD_DIR=${AERON_BUILD_DIR}")
 message(STATUS "Using AERON_SRC_DIR=${AERON_SRC_DIR}")
 
-# Require Aeron native build outputs. Do not fall back to source headers.
+# Check for headers - either in build/include (installed) or source tree
 if (EXISTS "${AERON_BUILD_DIR}/include")
-    include_directories(${AERON_BUILD_DIR}/include)
-    if (EXISTS "${AERON_BUILD_DIR}/include/aeron")
-        include_directories(${AERON_BUILD_DIR}/include/aeron)
-    endif()
-    if (EXISTS "${AERON_BUILD_DIR}/generated")
-        include_directories(${AERON_BUILD_DIR}/generated)
-    endif()
-    if (EXISTS "${AERON_BUILD_DIR}/_deps/hdr_histogram-build/include")
-        include_directories(${AERON_BUILD_DIR}/_deps/hdr_histogram-build/include)
-    endif()
+    # Headers installed to build directory
+    set(AERON_INCLUDE_DIRS
+        "${AERON_BUILD_DIR}/include"
+        "${AERON_BUILD_DIR}/generated"
+        "${AERON_BUILD_DIR}/_deps/hdr_histogram-build/include"
+    )
+elseif (EXISTS "${AERON_SRC_DIR}/aeron-client/src/main/cpp")
+    # Use headers from source tree
+    set(AERON_INCLUDE_DIRS
+        "${AERON_SRC_DIR}/aeron-client/src/main/cpp"
+        "${AERON_BUILD_DIR}/generated"
+        "${AERON_BUILD_DIR}/_deps/hdr_histogram-build/include"
+    )
+    message(STATUS "Using Aeron headers from source tree: ${AERON_SRC_DIR}/aeron-client/src/main/cpp")
 else()
-    message(FATAL_ERROR "AERON_BUILD_DIR (${AERON_BUILD_DIR}) does not contain include/ — build Aeron native artifacts and set -DAERON_BUILD_DIR to cppbuild/Release")
-endif()
-
-link_directories(${AERON_BUILD_DIR}/lib)
-
-# Try to find the shared client library first, then static archive
-find_library(AERON_CLIENT_LIB aeron_client_shared HINTS ${AERON_BUILD_DIR}/lib)
-if (NOT AERON_CLIENT_LIB)
-    find_library(AERON_CLIENT_LIB aeron_client HINTS ${AERON_BUILD_DIR}/lib)
-endif()
-
-if (NOT AERON_CLIENT_LIB)
-    message(WARNING "Could not find aeron client library in ${AERON_BUILD_DIR}/lib. You may need to adjust AERON_BUILD_DIR or build Aeron native artifacts.")
+    message(FATAL_ERROR "Cannot find Aeron headers. Check AERON_BUILD_DIR (${AERON_BUILD_DIR}) or AERON_SRC_DIR (${AERON_SRC_DIR}).")
 endif()
 
 add_executable(cpp-subscriber src/main.cpp)
 
-if (AERON_CLIENT_LIB)
-    target_link_libraries(cpp-subscriber ${AERON_CLIENT_LIB})
+target_include_directories(cpp-subscriber PRIVATE ${AERON_INCLUDE_DIRS})
+
+target_link_directories(cpp-subscriber PRIVATE "${AERON_BUILD_DIR}/lib")
+
+# Try shared client library first, then static
+set(AERON_LIB_NAMES aeron_client_shared aeron_client)
+find_library(AERON_CLIENT_LIB
+    NAMES ${AERON_LIB_NAMES}
+    HINTS "${AERON_BUILD_DIR}/lib"
+    PATH_SUFFIXES release debug
+)
+
+if (NOT AERON_CLIENT_LIB)
+    message(FATAL_ERROR "Cannot find Aeron client library in ${AERON_BUILD_DIR}/lib. Ensure Aeron native artifacts are built (cppbuild/<config>) and AERON_BUILD_DIR points to the directory containing lib/.")
+endif()
+
+# Check if we're using the shared library and add the required definition
+get_filename_component(AERON_LIB_NAME ${AERON_CLIENT_LIB} NAME_WE)
+if (AERON_LIB_NAME MATCHES "shared" OR MSVC)
+    # CRITICAL: Must define CLIENT_SHARED when using aeron_client_shared on Windows/MSVC
+    # This ensures proper DLL import/export declarations
+    target_compile_definitions(cpp-subscriber PRIVATE CLIENT_SHARED)
+    message(STATUS "Using shared Aeron client library - CLIENT_SHARED defined")
+endif()
+
+target_link_libraries(cpp-subscriber PRIVATE ${AERON_CLIENT_LIB})
+
+if (WIN32)
+    target_link_libraries(cpp-subscriber PRIVATE ws2_32)
+    target_compile_definitions(cpp-subscriber PRIVATE _WIN32_WINNT=0x0A00)
 endif()
 
 set_target_properties(cpp-subscriber PROPERTIES

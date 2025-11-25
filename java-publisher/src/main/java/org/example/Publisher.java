@@ -1,14 +1,20 @@
 package org.example;
 
-import io.aeron.Aeron;
-import io.aeron.Publication;
 import org.agrona.concurrent.UnsafeBuffer;
 
+import io.aeron.Aeron;
+import io.aeron.Publication;
+
 public class Publisher {
-    public static void main(String[] args) throws Exception {
-        final String channel = "aeron:udp?endpoint=127.0.0.1:40123";
-        final int streamId = 1001;
-        // parse args: first arg can be 'loop' or a count, second arg is interval ms
+    private static final String CHANNEL = "aeron:udp?endpoint=127.0.0.1:40123";
+    private static final int STREAM_ID = 1001;
+
+
+    public record Args( boolean loop, int count, int intervalMs) {
+    }
+
+
+    private static Args parseArgs(String[] args) {
         boolean loop = false;
         int count = 10;
         int intervalMs = 500;
@@ -32,29 +38,42 @@ public class Publisher {
             } catch (NumberFormatException ignore) {
             }
         }
+        return new Args(loop, count, intervalMs);
+    }
 
+
+    public static void main(String[] args) throws Exception {    
+        // parse args: first arg can be 'loop' or a count, second arg is interval ms
+        Args parsedArgs = parseArgs(args);
+        
         final Aeron.Context ctx = new Aeron.Context();
+        publishData(parsedArgs, ctx);
+    }
 
+
+    private static void publishData(Args args, final Aeron.Context ctx)
+            throws InterruptedException {
         try (Aeron aeron = Aeron.connect(ctx);
-             Publication publication = aeron.addPublication(channel, streamId)) {
-
-            System.out.println("Publishing to " + channel + " streamId=" + streamId);
+                   Publication publication = aeron.addPublication(CHANNEL, STREAM_ID)) {
+            System.out.println("Publishing to " + CHANNEL + " streamId=" + STREAM_ID);
 
             int i = 0;
-            while (loop || i < count) {
+            while (args.loop || i < args.count) {
                 i++;
-                String text = "Hello from Java Publisher(" + i + ")";
-                byte[] msg = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                UnsafeBuffer buffer = new UnsafeBuffer(msg);
 
-                while (publication.offer(buffer, 0, msg.length) <= 0) {
-                    // busy-wait retry
+                UnsafeBuffer buffer = constructData(i);
+
+                while (publication.offer(buffer, 0, buffer.capacity()) <= 0) { // non-blocking offer. If it fails, retry
                     Thread.yield();
                 }
-                System.out.println("Sent message " + i + ": " + text);
+                System.out.println("Sent message " + i + ": " + buffer.byteArray());
 
-                Thread.sleep(intervalMs);
+                Thread.sleep(args.intervalMs);
             }
         }
+    }
+
+    private static UnsafeBuffer constructData(int i) {
+        return new UnsafeBuffer(("Hello from Java Publisher(" + i + ")").getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 }
