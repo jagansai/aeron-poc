@@ -43,7 +43,10 @@ cd C:\path\to\aeron\aeron-samples\scripts
 Keep the MediaDriver running while you start the subscriber and publisher.
 
 ## Java publisher
-`java-publisher` is a Gradle project (depends on `io.aeron:aeron-client:1.49.0`). The helper `java-publisher/scripts/start-publisher.sh` builds the jar and supports background execution on Linux; on Windows you can call the Gradle wrapper (`gradlew.bat`).
+`java-publisher` is a Gradle project (depends on `io.aeron:aeron-client:1.49.0`).
+
+### Linux
+Use the helper `java-publisher/scripts/start-publisher.sh` to build the jar and optionally run in the background (it still delegates to the Gradle wrapper).
 
 ```bash
 cd java-publisher
@@ -51,7 +54,15 @@ cd java-publisher
 ./gradlew startPublisher --args="100 200"
 ```
 
-`startPublisher` accepts `<count|loop>` and `<interval-ms>` arguments.
+### Windows (PowerShell)
+Call the PowerShell helper that wraps `gradlew.bat` and exposes the same `startPublisher` arguments.
+
+```powershell
+cd java-publisher
+.\scripts\start-publisher.ps1 --count 100 --intervalMs 200
+```
+
+`startPublisher` accepts `<count|loop>` and `<interval-ms>` arguments on both platforms.
 
 ## C++ subscriber
 ### Linux
@@ -82,7 +93,7 @@ cmake --build . --config Release --target cpp-subscriber
 - `scripts/start_all.sh` (Linux): reads `scripts/run.conf`, optionally starts MediaDriver, builds the subscriber, and launches both components (supports background logging).
 - `scripts/start_all.ps1` (Windows): PowerShell orchestrator that parses `run.conf`, starts `media-driver.cmd`, builds the subscriber via CMake, and runs the subscriber/publisher (background logging supported).
 - `cpp-subscriber/scripts/run-subscriber.sh`/`.ps1`: platform-specific helpers that ensure Aeron native libs are on the loader path before running the subscriber executable.
-- `java-publisher/scripts/start-publisher.sh`: cross-platform helper that wraps the Gradle task (on Windows you can also call `gradlew.bat startPublisher --args="..."`).
+- `java-publisher/scripts/start-publisher.sh` / `.ps1`: shell and PowerShell helpers that wrap the Gradle task (on Windows you can call the PS script or `gradlew.bat startPublisher --args="..."`).
 
 ## Configuration (`scripts/run.conf`)
 ```properties
