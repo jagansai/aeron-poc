@@ -2,6 +2,9 @@
 
 This repository demonstrates Aeron interoperability between a Java publisher and a C++ subscriber communicating over UDP loopback through an external MediaDriver. The PoC can be built and run on both Linux and Windows.
 
+## Test animation
+- `test.gif` illustrates the expected message flow when the PoC is running; open it with a compatible viewer to see the live trace.
+
 ## Channel & stream
 - Channel URI: `aeron:udp?endpoint=127.0.0.1:40123`
 - Stream ID: `1001`
